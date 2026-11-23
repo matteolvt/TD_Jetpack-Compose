@@ -4,33 +4,37 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.annotation.XmlRes
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.productexplorer.ui.theme.ProductExplorerTheme
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
-import androidx.compose.ui.Alignment
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -39,9 +43,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             ProductExplorerTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    ProductHomeScreen(
-                        featuredProduct = sampleProduct(),
-                        onFeaturedProductClick = {
+                    ProductCatalogScreen(
+                        products = sampleProducts(),
+                        onProductClick = {
                             // À ajouter plus tard
                         },
                         modifier = Modifier.padding(innerPadding)
@@ -53,6 +57,7 @@ class MainActivity : ComponentActivity() {
 }
 
 data class ProductUi(
+    val id: Int,
     val title: String,
     val brand: String,
     val category: String,
@@ -67,6 +72,7 @@ data class ProductUi(
 
 fun sampleProduct(): ProductUi {
     return ProductUi(
+        id = 1,
         title = "Smartphone",
         brand = "TotoTech",
         category = "Smartphones",
@@ -78,6 +84,96 @@ fun sampleProduct(): ProductUi {
         warrantyInformation = "Garantie constructeur : 2 ans",
         shippingInformation = "Livraison estimée : 3 à 5 jours ouvrés"
     )
+}
+
+fun sampleCategories(): List<String> {
+    return listOf("Smartphone", "Audio", "Wearables", "Maison")
+}
+
+@Composable
+fun CategoryRow(
+    categories: List<String>,
+    modifier: Modifier = Modifier
+) {
+    LazyRow(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(categories) { category ->
+            CategoryChip(label = category)
+        }
+    }
+}
+
+@Composable
+fun ProductListItem(
+    product: ProductUi,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(modifier = modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Text(
+                text = product.title,
+                style = MaterialTheme.typography.titleMedium
+            )
+            Text(
+                text = product.brand,
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "${product.price} € • ★ ${product.rating}",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Button(onClick = onClick) {
+                Text(text = "Voir le produit")
+            }
+        }
+    }
+}
+
+@Composable
+fun ProductCatalogScreen(
+    products: List<ProductUi>,
+    onProductClick: (ProductUi) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            Text(
+                text = "Catalogue produits",
+                style = MaterialTheme.typography.headlineMedium
+            )
+        }
+        item {
+            Text(
+                text = "Explorez une séléction de produits disponibles localement.",
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+        item {
+            CategoryRow(categories = sampleCategories())
+        }
+        items(
+            items = products,
+            key = { product -> product.id }
+        ) { product ->
+            ProductListItem(
+                product = product,
+                onClick = {
+                    onProductClick(product)
+                }
+            )
+        }
+    }
 }
 
 @Composable
@@ -142,7 +238,7 @@ fun ProductDetailScreen(
 @Preview(showBackground = true)
 @Composable
 fun ProductDetailScreenPreview() {
-    ProductExplorerTheme{
+    ProductExplorerTheme {
         ProductDetailScreen(
             product = sampleProduct(),
             onAddToCartClick = {}
@@ -152,11 +248,11 @@ fun ProductDetailScreenPreview() {
 
 @Preview(showBackground = true)
 @Composable
-fun ProductDetailScreenOutOfStockPreview(){
+fun ProductCatalogScreenPreview() {
     ProductExplorerTheme {
-        ProductDetailScreen(
-            product = sampleProductOutOfStock(),
-            onAddToCartClick = {}
+        ProductCatalogScreen(
+            products = sampleProducts(),
+            onProductClick = {}
         )
     }
 }
@@ -164,7 +260,7 @@ fun ProductDetailScreenOutOfStockPreview(){
 @Preview(showBackground = true)
 @Composable
 fun ProductScreenPreview() {
-    ProductExplorerTheme{
+    ProductExplorerTheme {
         ProductHomeScreen(
             featuredProduct = sampleProduct(),
             onFeaturedProductClick = {},
@@ -174,8 +270,8 @@ fun ProductScreenPreview() {
 
 @Composable
 fun ProductHeader(
-    title : String,
-    brand : String,
+    title: String,
+    brand: String,
     category: String,
     modifier: Modifier = Modifier
 ) {
@@ -197,11 +293,11 @@ fun ProductHeader(
 
 @Composable
 fun ProductPriceCard(
-    price : Double,
+    price: Double,
     discountPercentage: Double,
-    modifier : Modifier = Modifier
+    modifier: Modifier = Modifier
 ) {
-    Card(modifier = modifier ){
+    Card(modifier = modifier) {
         Column(
             modifier = Modifier.padding(16.dp)
         ) {
@@ -219,9 +315,9 @@ fun ProductPriceCard(
 
 @Composable
 fun ProductImage(
-    productTitle : String,
-    modifier : Modifier = Modifier
-){
+    productTitle: String,
+    modifier: Modifier = Modifier
+) {
     Image(
         painter = painterResource(id = android.R.drawable.ic_menu_gallery),
         contentDescription = "Image du produit $productTitle",
@@ -231,10 +327,10 @@ fun ProductImage(
 
 @Composable
 fun ProductRating(
-    rating : Double,
-    modifier : Modifier = Modifier
+    rating: Double,
+    modifier: Modifier = Modifier
 ) {
-    Row(modifier = modifier){
+    Row(modifier = modifier) {
         Icon(
             imageVector = Icons.Default.Star,
             contentDescription = "Note du produit"
@@ -248,11 +344,11 @@ fun ProductRating(
 
 @Composable
 fun ProductAvailabilityCard(
-    stock : Int,
+    stock: Int,
     shippingInformation: String,
-    modifier : Modifier = Modifier
-){
-    Card(modifier = Modifier) {
+    modifier: Modifier = Modifier
+) {
+    Card(modifier = modifier) {
         Column(
             modifier = Modifier.padding(16.dp)
         ) {
@@ -275,9 +371,9 @@ fun ProductAvailabilityCard(
 @Composable
 fun ProductDescription(
     description: String,
-    modifier : Modifier = Modifier
-){
-    Column(modifier = modifier){
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier) {
         Text(
             text = "Description",
             style = MaterialTheme.typography.titleMedium
@@ -293,8 +389,8 @@ fun ProductDescription(
 @Composable
 fun ProductWarrantyField(
     warrantyInformation: String,
-    modifier : Modifier = Modifier
-){
+    modifier: Modifier = Modifier
+) {
     OutlinedTextField(
         value = warrantyInformation,
         onValueChange = {},
@@ -309,7 +405,7 @@ fun ProductWarrantyField(
 @Composable
 fun AddToCartButton(
     onClick: () -> Unit,
-    modifier : Modifier = Modifier
+    modifier: Modifier = Modifier
 ) {
     Button(
         onClick = onClick,
@@ -324,17 +420,16 @@ fun ProductHomeScreen(
     featuredProduct: ProductUi,
     onFeaturedProductClick: () -> Unit,
     modifier: Modifier = Modifier
-){
+) {
     Column(
         modifier = modifier
             .fillMaxSize()
             .padding(16.dp)
-    ){
+    ) {
         HomeHeader()
         Spacer(modifier = Modifier.height(24.dp))
         SearchPreviewBar()
         Spacer(modifier = Modifier.height(24.dp))
-        Spacer(modifier = Modifier.height(12.dp))
         FeaturedProductSection(
             product = featuredProduct,
             onClick = onFeaturedProductClick
@@ -348,9 +443,9 @@ fun ProductHomeScreen(
 
 @Composable
 fun HomeHeader(
-    modifier : Modifier = Modifier,
-){
-    Column(modifier = modifier){
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier) {
         Text(
             text = "Product Explorer",
             style = MaterialTheme.typography.headlineMedium
@@ -364,8 +459,8 @@ fun HomeHeader(
 
 @Composable
 fun SearchPreviewBar(
-    modifier : Modifier = Modifier,
-){
+    modifier: Modifier = Modifier,
+) {
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
@@ -383,16 +478,16 @@ fun SearchPreviewBar(
 fun FeaturedProductSection(
     product: ProductUi,
     onClick: () -> Unit,
-    modifier : Modifier = Modifier
-){
+    modifier: Modifier = Modifier
+) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
         tonalElevation = 4.dp
-    ){
+    ) {
         Column(
             modifier = Modifier.padding(16.dp)
-        ){
+        ) {
             Text(
                 text = "Produit mis en avant",
                 style = MaterialTheme.typography.titleMedium
@@ -402,7 +497,7 @@ fun FeaturedProductSection(
                 text = product.title,
                 style = MaterialTheme.typography.headlineSmall
             )
-            Text (
+            Text(
                 text = product.brand,
                 style = MaterialTheme.typography.bodyMedium
             )
@@ -412,7 +507,8 @@ fun FeaturedProductSection(
                 rating = product.rating,
                 stock = product.stock
             )
-            Button(onClick = onClick){
+            Spacer(modifier = Modifier.height(12.dp))
+            Button(onClick = onClick) {
                 Text(text = "Voir le produit")
             }
         }
@@ -421,11 +517,11 @@ fun FeaturedProductSection(
 
 @Composable
 fun ProductQuickInfoRow(
-    price : Double,
-    rating : Double,
-    stock : Int,
-    modifier : Modifier = Modifier
-){
+    price: Double,
+    rating: Double,
+    stock: Int,
+    modifier: Modifier = Modifier
+) {
     Row(modifier = modifier.fillMaxWidth()) {
         Text(
             text = "$price €",
@@ -444,14 +540,14 @@ fun ProductQuickInfoRow(
 
 @Composable
 fun CategoryChip(
-    label : String,
-    modifier : Modifier = Modifier
-){
+    label: String,
+    modifier: Modifier = Modifier
+) {
     Surface(
         modifier = modifier,
         shape = MaterialTheme.shapes.medium,
         tonalElevation = 2.dp
-    ){
+    ) {
         Text(
             text = label,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
@@ -462,9 +558,9 @@ fun CategoryChip(
 
 @Composable
 fun CategorySection(
-    modifier : Modifier = Modifier
-){
-    Column(modifier = modifier){
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier) {
         Text(
             text = "Catégories",
             style = MaterialTheme.typography.titleMedium
@@ -483,10 +579,10 @@ fun CategorySection(
 @Composable
 fun DailyOfferBox(
     modifier: Modifier = Modifier
-){
+) {
     Box(
         modifier = modifier.fillMaxWidth()
-    ){
+    ) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = MaterialTheme.shapes.large,
@@ -494,7 +590,7 @@ fun DailyOfferBox(
         ) {
             Column(
                 modifier = Modifier.padding(16.dp)
-            ){
+            ) {
                 Text(
                     text = "Offre du jour",
                     style = MaterialTheme.typography.titleMedium
@@ -523,6 +619,7 @@ fun DailyOfferBox(
 
 fun sampleProductOutOfStock(): ProductUi {
     return ProductUi(
+        id = 2,
         title = "Casque Audio Pulse",
         brand = "SoundPeak",
         category = "Audio",
@@ -534,5 +631,50 @@ fun sampleProductOutOfStock(): ProductUi {
         stock = 0,
         warrantyInformation = "Garantie constructeur : 1 an",
         shippingInformation = "Produit temporairement indisponible"
+    )
+}
+
+fun sampleProducts(): List<ProductUi> {
+    return listOf(
+        sampleProduct(),
+        ProductUi(
+            id = 2,
+            title = "Casque Audio Pulse",
+            brand = "SoundPeak",
+            category = "Audio",
+            description = "Un casque confortable pour écouter de la musique et travailler dans de bonnes conditions.",
+            price = 129.99,
+            discountPercentage = 8.0,
+            rating = 4.2,
+            stock = 0,
+            warrantyInformation = "Garantie constructeur : 1 an",
+            shippingInformation = "Produit temporairement indisponible"
+        ),
+        ProductUi(
+            id = 3,
+            title = "Montre Connectée FitTime",
+            brand = "FitTime",
+            category = "Wearables",
+            description = "Une montre connectée simple pour suivre l'activité quotidienne",
+            price = 89.99,
+            discountPercentage = 15.0,
+            rating = 4.4,
+            stock = 18,
+            warrantyInformation = "Garantie Constructeur : 2 ans",
+            shippingInformation = "Livraison estimée : 2 à 4 jours ouvrés"
+        ),
+        ProductUi(
+            id = 4,
+            title = "Enceinte Mini Boom",
+            brand = "BoomSound",
+            category = "Audio",
+            description = "Une enceinte compacte pour écouter de la musique à la maison ou en déplacement.",
+            price = 59.99,
+            discountPercentage = 5.0,
+            rating = 4.1,
+            stock = 52,
+            warrantyInformation = "Garantie constructeur : 1 an",
+            shippingInformation = "Livraison estimée : 3 jours ouvrés"
+        )
     )
 }
