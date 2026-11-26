@@ -1,6 +1,5 @@
 package com.example.productexplorer
 
-import android.icu.text.ListFormatter
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -19,12 +18,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.item
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -32,17 +33,20 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.productexplorer.ui.theme.ProductExplorerTheme
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -63,6 +67,8 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+// ---------- Modèles ----------
+
 data class ProductUi(
     val id: Int,
     val title: String,
@@ -76,6 +82,25 @@ data class ProductUi(
     val warrantyInformation: String,
     val shippingInformation: String
 )
+
+enum class PriceSort(val label: String) {
+    NONE("Tri : aucun"),
+    ASCENDING("Prix croissant"),
+    DESCENDING("Prix décroissant")
+}
+
+data class ProductCatalogUiState(
+    val products: List<ProductUi> = emptyList(),
+    val categories: List<String> = emptyList(),
+    val searchQuery: String = "",
+    val showOnlyInStock: Boolean = false,
+    val showOnlyFavorites: Boolean = false,
+    val selectedCategory: String? = null,
+    val priceSort: PriceSort = PriceSort.NONE,
+    val favoriteProductIds: List<Int> = emptyList()
+)
+
+// ---------- Données de test ----------
 
 fun sampleProduct(): ProductUi {
     return ProductUi(
@@ -93,24 +118,293 @@ fun sampleProduct(): ProductUi {
     )
 }
 
-fun sampleCategories(): List<String> {
-    return listOf("Smartphone", "Audio", "Wearables", "Maison")
+fun sampleProducts(): List<ProductUi> {
+    return listOf(
+        sampleProduct(),
+        ProductUi(
+            id = 2,
+            title = "Casque Audio Pulse",
+            brand = "SoundPeak",
+            category = "Audio",
+            description = "Un casque confortable pour écouter de la musique et travailler dans de bonnes conditions.",
+            price = 129.99,
+            discountPercentage = 8.0,
+            rating = 4.2,
+            stock = 0,
+            warrantyInformation = "Garantie constructeur : 1 an",
+            shippingInformation = "Produit temporairement indisponible"
+        ),
+        ProductUi(
+            id = 3,
+            title = "Montre Connectée FitTime",
+            brand = "FitTime",
+            category = "Wearables",
+            description = "Une montre connectée simple pour suivre l'activité quotidienne",
+            price = 89.99,
+            discountPercentage = 15.0,
+            rating = 4.4,
+            stock = 18,
+            warrantyInformation = "Garantie Constructeur : 2 ans",
+            shippingInformation = "Livraison estimée : 2 à 4 jours ouvrés"
+        ),
+        ProductUi(
+            id = 4,
+            title = "Enceinte Mini Boom",
+            brand = "BoomSound",
+            category = "Audio",
+            description = "Une enceinte compacte pour écouter de la musique à la maison ou en déplacement.",
+            price = 59.99,
+            discountPercentage = 5.0,
+            rating = 4.1,
+            stock = 52,
+            warrantyInformation = "Garantie constructeur : 1 an",
+            shippingInformation = "Livraison estimée : 3 jours ouvrés"
+        )
+    )
 }
 
-@Composable
-fun CategoryRow(
-    categories: List<String>,
-    modifier: Modifier = Modifier
-) {
-    LazyRow(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        items(categories) { category ->
-            CategoryChip(label = category)
+// ---------- ViewModel : source de vérité de l'état ----------
+
+class ProductCatalogViewModel : ViewModel() {
+
+    private val allProducts: List<ProductUi> = sampleProducts()
+
+    // Catégories dérivées des produits : évite les incohérences (singulier/pluriel)
+    private val allCategories: List<String> = allProducts.map { it.category }.distinct()
+
+    private val _uiState = MutableStateFlow(
+        applyFilters(ProductCatalogUiState(categories = allCategories))
+    )
+
+    val uiState: StateFlow<ProductCatalogUiState> = _uiState.asStateFlow()
+
+    /** Point unique de calcul de la liste affichée. Toute modification passe par ici. */
+    private fun applyFilters(state: ProductCatalogUiState): ProductCatalogUiState {
+        val filtered = allProducts
+            .filter { product ->
+                state.searchQuery.isBlank() ||
+                        product.title.contains(state.searchQuery, ignoreCase = true) ||
+                        product.brand.contains(state.searchQuery, ignoreCase = true) ||
+                        product.category.contains(state.searchQuery, ignoreCase = true)
+            }
+            .filter { product -> !state.showOnlyInStock || product.stock > 0 }
+            .filter { product -> !state.showOnlyFavorites || product.id in state.favoriteProductIds }
+            .filter { product -> state.selectedCategory == null || product.category == state.selectedCategory }
+            .let { list ->
+                when (state.priceSort) {
+                    PriceSort.NONE -> list
+                    PriceSort.ASCENDING -> list.sortedBy { it.price }
+                    PriceSort.DESCENDING -> list.sortedByDescending { it.price }
+                }
+            }
+
+        return state.copy(products = filtered)
+    }
+
+    /** Applique une modification, puis recalcule TOUJOURS la liste affichée. */
+    private fun updateState(transform: (ProductCatalogUiState) -> ProductCatalogUiState) {
+        _uiState.update { current -> applyFilters(transform(current)) }
+    }
+
+    fun onSearchQueryChange(newValue: String) {
+        updateState { it.copy(searchQuery = newValue) }
+    }
+
+    fun onToggleStockFilter() {
+        updateState { it.copy(showOnlyInStock = !it.showOnlyInStock) }
+    }
+
+    fun onToggleFavoritesFilter() {
+        updateState { it.copy(showOnlyFavorites = !it.showOnlyFavorites) }
+    }
+
+    fun onCategorySelected(category: String?) {
+        updateState { it.copy(selectedCategory = category) }
+    }
+
+    fun onPriceSortSelected(sort: PriceSort) {
+        updateState { it.copy(priceSort = sort) }
+    }
+
+    fun onFavoriteClick(productId: Int) {
+        updateState { state ->
+            val newFavoriteIds =
+                if (state.favoriteProductIds.contains(productId)) {
+                    state.favoriteProductIds - productId
+                } else {
+                    state.favoriteProductIds + productId
+                }
+            state.copy(favoriteProductIds = newFavoriteIds)
         }
     }
 }
+
+// ---------- Composable stateful : connecte le ViewModel à Compose ----------
+
+@Composable
+fun ProductCatalogContainer(
+    onProductClick: (ProductUi) -> Unit,
+    modifier: Modifier = Modifier,
+    viewModel: ProductCatalogViewModel = viewModel()
+) {
+    val uiState by viewModel.uiState.collectAsState()
+
+    ProductCatalogScreen(
+        products = uiState.products,
+        categories = uiState.categories,
+        searchQuery = uiState.searchQuery,
+        onSearchQueryChange = viewModel::onSearchQueryChange,
+        showOnlyInStock = uiState.showOnlyInStock,
+        onToggleStockFilter = viewModel::onToggleStockFilter,
+        showOnlyFavorites = uiState.showOnlyFavorites,
+        onToggleFavoritesFilter = viewModel::onToggleFavoritesFilter,
+        selectedCategory = uiState.selectedCategory,
+        onCategorySelected = viewModel::onCategorySelected,
+        priceSort = uiState.priceSort,
+        onPriceSortSelected = viewModel::onPriceSortSelected,
+        favoriteProductIds = uiState.favoriteProductIds,
+        onFavoriteClick = viewModel::onFavoriteClick,
+        onProductClick = onProductClick,
+        modifier = modifier
+    )
+}
+
+// ---------- Composable stateless : affiche uniquement ce qu'il reçoit ----------
+
+@Composable
+fun ProductCatalogScreen(
+    products: List<ProductUi>,
+    categories: List<String>,
+    searchQuery: String,
+    onSearchQueryChange: (String) -> Unit,
+    showOnlyInStock: Boolean,
+    onToggleStockFilter: () -> Unit,
+    showOnlyFavorites: Boolean,
+    onToggleFavoritesFilter: () -> Unit,
+    selectedCategory: String?,
+    onCategorySelected: (String?) -> Unit,
+    priceSort: PriceSort,
+    onPriceSortSelected: (PriceSort) -> Unit,
+    favoriteProductIds: List<Int>,
+    onFavoriteClick: (Int) -> Unit,
+    onProductClick: (ProductUi) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    LazyColumn(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            Text(
+                text = "Catalogue produits",
+                style = MaterialTheme.typography.headlineMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+        item {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = onSearchQueryChange,
+                label = { Text(text = "Rechercher un produit") },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        item {
+            FilterControls(
+                showOnlyInStock = showOnlyInStock,
+                onToggleStockFilter = onToggleStockFilter,
+                showOnlyFavorites = showOnlyFavorites,
+                onToggleFavoritesFilter = onToggleFavoritesFilter,
+                categories = categories,
+                selectedCategory = selectedCategory,
+                onCategorySelected = onCategorySelected,
+                priceSort = priceSort,
+                onPriceSortSelected = onPriceSortSelected
+            )
+        }
+        item {
+            Text(
+                text = "${products.size} produit(s) affiché(s)",
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+        items(
+            items = products,
+            key = { product -> product.id }
+        ) { product ->
+            ProductListItem(
+                product = product,
+                isFavorite = favoriteProductIds.contains(product.id),
+                onFavoriteClick = { onFavoriteClick(product.id) },
+                onClick = { onProductClick(product) }
+            )
+        }
+    }
+}
+
+// ---------- Bloc de filtres ----------
+
+@Composable
+fun FilterControls(
+    showOnlyInStock: Boolean,
+    onToggleStockFilter: () -> Unit,
+    showOnlyFavorites: Boolean,
+    onToggleFavoritesFilter: () -> Unit,
+    categories: List<String>,
+    selectedCategory: String?,
+    onCategorySelected: (String?) -> Unit,
+    priceSort: PriceSort,
+    onPriceSortSelected: (PriceSort) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(
+                selected = showOnlyInStock,
+                onClick = onToggleStockFilter,
+                label = { Text("En stock") }
+            )
+            FilterChip(
+                selected = showOnlyFavorites,
+                onClick = onToggleFavoritesFilter,
+                label = { Text("Favoris uniquement") }
+            )
+        }
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            item {
+                FilterChip(
+                    selected = selectedCategory == null,
+                    onClick = { onCategorySelected(null) },
+                    label = { Text("Toutes") }
+                )
+            }
+            items(categories) { category ->
+                FilterChip(
+                    selected = selectedCategory == category,
+                    onClick = { onCategorySelected(category) },
+                    label = { Text(category) }
+                )
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PriceSort.entries.forEach { sort ->
+                FilterChip(
+                    selected = priceSort == sort,
+                    onClick = { onPriceSortSelected(sort) },
+                    label = { Text(sort.label) }
+                )
+            }
+        }
+    }
+}
+
+// ---------- Carte produit (stateless) ----------
 
 @Composable
 fun ProductListItem(
@@ -166,101 +460,7 @@ fun ProductListItem(
     }
 }
 
-@Composable
-fun ProductCatalogScreen(
-    products: List<ProductUi>,
-    categories: List<String>,
-    searchQuery: String,
-    onSearchQueryChange: (String) -> Unit,
-    showOnlyInStock: Boolean,
-    onToggleStockFilter: () -> Unit,
-    favoriteProductIds: List<Int>,
-    onFavoriteClick: (Int) -> Unit,
-    onProductClick: (ProductUi) -> Unit,
-    modifier: Modifier = Modifier
-){  LazyColumn(
-        modifier = modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        item {
-            Text(
-                text = "Catalogue produits",
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.primary
-            )
-        }
-        item {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = onSearchQueryChange,
-                label = {
-                    Text(text = "Rechercher un produit")
-                },
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-        item {
-            Button(
-                onClick = onToggleStockFilter
-            ) {
-                Text(
-                    text = if (showOnlyInStock) {
-                        "Afficher tous les produits"
-                    } else {
-                        "Afficher uniquement les produits en stock"
-                    }
-                )
-            }
-        }
-        item {
-            Text(
-                text = "${products.size} produit(s) affiché(s)",
-                style = MaterialTheme.typography.bodyMedium
-            )
-        }
-        item {
-            CategoryRow(categories = categories)
-        }
-        items(
-            items = products,
-            key = { product -> product.id }
-        ) { product ->
-            ProductListItem(
-            product = product,
-            isFavorite = favoriteProductIds.contains(product.id),
-            onFavoriteClick = {
-                onFavoriteClick(product.id)
-            },
-            onClick = {
-                onProductClick(product)
-            }
-        )
-        }
-    }
-}
-
-@Composable
-fun ProductCatalogContainer(
-    onProductClick: (ProductUi) -> Unit,
-    modifier: Modifier = Modifier,
-    viewModel: ProductCatalogViewModel = viewModel()
-) {
-    ProductCatalogScreen(
-        products = viewModel.filteredProducts,
-        categories = viewModel.categories,
-        searchQuery = viewModel.searchQuery,
-        onSearchQueryChange = viewModel::onSearchQueryChange,
-        showOnlyInStock = viewModel.showOnlyInStock,
-        onToggleStockFilter = viewModel::onToggleStockFilter,
-        favoriteProductIds = viewModel.favoriteProductIds,
-        onFavoriteClick = viewModel::onFavoriteClick,
-        onProductClick = onProductClick,
-        modifier = modifier
-    )
-}
+// ---------- Écrans annexes (inchangés) ----------
 
 @Composable
 fun ProductDetailScreen(
@@ -317,68 +517,6 @@ fun ProductDetailScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 16.dp)
-        )
-    }
-}
-
-@Preview(
-    showBackground = true,
-    name = "Catalogue - Dark Theme"
-)
-@Composable
-fun ProductCatalogScreenDarkPreview() {
-    ProductExplorerTheme(darkTheme = true) {
-        ProductCatalogScreen(
-            products = sampleProducts(),
-            categories = sampleCategories(),
-            searchQuery = "audio",
-            onSearchQueryChange = {},
-            showOnlyInStock = true,
-            onToggleStockFilter = {},
-            favoriteProductIds = listOf(2),
-            onFavoriteClick = {},
-            onProductClick = {}
-        )
-    }
-}
-
-@Preview(
-    showBackground = true,
-    name = "Catalogue - Light Theme"
-)
-@Composable
-fun ProductCatalogScreenLightPreview() {
-    ProductExplorerTheme(darkTheme = false) {
-        ProductCatalogScreen(
-            products = sampleProducts(),
-            categories = sampleCategories(),
-            searchQuery = ""
-            ,
-            onSearchQueryChange = {},
-            showOnlyInStock = false,
-            onToggleStockFilter = {},
-            favoriteProductIds = listOf(1),
-            onFavoriteClick = {},
-            onProductClick = {}
-        )
-    }
-}
-
-@Preview(showBackground = true)
-@Composable
-fun ProductCatalogScreenStatelessPreview() {
-    ProductExplorerTheme {
-        ProductCatalogScreen(
-            products = sampleProducts(),
-            categories = sampleCategories(),
-            searchQuery = ""
-            ,
-            onSearchQueryChange = {},
-            showOnlyInStock = false,
-            onToggleStockFilter = {},
-            favoriteProductIds = listOf(1),
-            onFavoriteClick = {},
-            onProductClick = {}
         )
     }
 }
@@ -671,6 +809,7 @@ fun CategoryChip(
         )
     }
 }
+
 @Composable
 fun CategorySection(
     modifier: Modifier = Modifier
@@ -732,109 +871,98 @@ fun DailyOfferBox(
     }
 }
 
-fun sampleProductOutOfStock(): ProductUi {
-    return ProductUi(
-        id = 2,
-        title = "Casque Audio Pulse",
-        brand = "SoundPeak",
-        category = "Audio",
-        description = "Un casque confortable conçu pour écouter de la musique," +
-                "suivre les cours en ligner en travaillant dans de bonnes conditions.",
-        price = 129.99,
-        discountPercentage = 8.0,
-        rating = 4.2,
-        stock = 0,
-        warrantyInformation = "Garantie constructeur : 1 an",
-        shippingInformation = "Produit temporairement indisponible"
-    )
-}
+// ---------- Previews ----------
 
-fun sampleProducts(): List<ProductUi> {
-    return listOf(
-        sampleProduct(),
-        ProductUi(
-            id = 2,
-            title = "Casque Audio Pulse",
-            brand = "SoundPeak",
-            category = "Audio",
-            description = "Un casque confortable pour écouter de la musique et travailler dans de bonnes conditions.",
-            price = 129.99,
-            discountPercentage = 8.0,
-            rating = 4.2,
-            stock = 0,
-            warrantyInformation = "Garantie constructeur : 1 an",
-            shippingInformation = "Produit temporairement indisponible"
-        ),
-        ProductUi(
-            id = 3,
-            title = "Montre Connectée FitTime",
-            brand = "FitTime",
-            category = "Wearables",
-            description = "Une montre connectée simple pour suivre l'activité quotidienne",
-            price = 89.99,
-            discountPercentage = 15.0,
-            rating = 4.4,
-            stock = 18,
-            warrantyInformation = "Garantie Constructeur : 2 ans",
-            shippingInformation = "Livraison estimée : 2 à 4 jours ouvrés"
-        ),
-        ProductUi(
-            id = 4,
-            title = "Enceinte Mini Boom",
-            brand = "BoomSound",
-            category = "Audio",
-            description = "Une enceinte compacte pour écouter de la musique à la maison ou en déplacement.",
-            price = 59.99,
-            discountPercentage = 5.0,
-            rating = 4.1,
-            stock = 52,
-            warrantyInformation = "Garantie constructeur : 1 an",
-            shippingInformation = "Livraison estimée : 3 jours ouvrés"
+@Preview(showBackground = true, name = "Catalogue - Dark Theme")
+@Composable
+fun ProductCatalogScreenDarkPreview() {
+    ProductExplorerTheme(darkTheme = true) {
+        ProductCatalogScreen(
+            products = sampleProducts(),
+            categories = sampleProducts().map { it.category }.distinct(),
+            searchQuery = "audio",
+            onSearchQueryChange = {},
+            showOnlyInStock = true,
+            onToggleStockFilter = {},
+            showOnlyFavorites = false,
+            onToggleFavoritesFilter = {},
+            selectedCategory = null,
+            onCategorySelected = {},
+            priceSort = PriceSort.ASCENDING,
+            onPriceSortSelected = {},
+            favoriteProductIds = listOf(2),
+            onFavoriteClick = {},
+            onProductClick = {}
         )
-    )
+    }
 }
 
-class ProductCatalogViewModel : ViewModel() {
-
-    private val allProducts: List<ProductUi> = sampleProducts()
-
-    val categories: List<String> = sampleCategories()
-
-    var searchQuery by mutableStateOf("")
-    private set
-
-    var showOnlyInStock by mutableStateOf(false)
-    private set
-
-    var favoriteProductIds by mutableStateOf(listOf<Int>())
-    private set
-
-    val filteredProducts: List<ProductUi>
-    get() = allProducts.filter { product ->
-        val matchesSearch =
-            product.title.contains(searchQuery, ignoreCase = true) ||
-                    product.brand.contains(searchQuery, ignoreCase = true) ||
-                    product.category.contains(searchQuery, ignoreCase = true)
-
-        val matchesStock =
-            !showOnlyInStock || product.stock > 0
-
-        matchesSearch && matchesStock
+@Preview(showBackground = true, name = "Catalogue - Light Theme")
+@Composable
+fun ProductCatalogScreenLightPreview() {
+    ProductExplorerTheme(darkTheme = false) {
+        ProductCatalogScreen(
+            products = sampleProducts(),
+            categories = sampleProducts().map { it.category }.distinct(),
+            searchQuery = "",
+            onSearchQueryChange = {},
+            showOnlyInStock = false,
+            onToggleStockFilter = {},
+            showOnlyFavorites = false,
+            onToggleFavoritesFilter = {},
+            selectedCategory = null,
+            onCategorySelected = {},
+            priceSort = PriceSort.NONE,
+            onPriceSortSelected = {},
+            favoriteProductIds = listOf(1),
+            onFavoriteClick = {},
+            onProductClick = {}
+        )
     }
+}
 
-    fun onSearchQueryChange(newValue: String) {
-        searchQuery = newValue
+@Preview(showBackground = true)
+@Composable
+fun ProductCatalogContainerPreview() {
+    ProductExplorerTheme {
+        ProductCatalogScreen(
+            products = sampleProducts(),
+            categories = sampleProducts().map { it.category }.distinct(),
+            searchQuery = "",
+            onSearchQueryChange = {},
+            showOnlyInStock = false,
+            onToggleStockFilter = {},
+            showOnlyFavorites = false,
+            onToggleFavoritesFilter = {},
+            selectedCategory = null,
+            onCategorySelected = {},
+            priceSort = PriceSort.NONE,
+            onPriceSortSelected = {},
+            favoriteProductIds = emptyList(),
+            onFavoriteClick = {},
+            onProductClick = {}
+        )
     }
+}
 
-    fun onToggleStockFilter() {
-        showOnlyInStock = !showOnlyInStock
+@Preview(showBackground = true)
+@Composable
+fun ProductDetailScreenPreview() {
+    ProductExplorerTheme {
+        ProductDetailScreen(
+            product = sampleProduct(),
+            onAddToCartClick = {}
+        )
     }
+}
 
-    fun onFavoriteClick(productId: Int) {
-        favoriteProductIds = if (favoriteProductIds.contains(productId)) {
-            favoriteProductIds - productId
-        } else {
-            favoriteProductIds + productId
-        }
+@Preview(showBackground = true)
+@Composable
+fun ProductHomeScreenPreview() {
+    ProductExplorerTheme {
+        ProductHomeScreen(
+            featuredProduct = sampleProduct(),
+            onFeaturedProductClick = {}
+        )
     }
 }
