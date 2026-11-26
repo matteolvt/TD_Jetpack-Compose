@@ -31,6 +31,11 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
@@ -110,6 +115,8 @@ fun CategoryRow(
 @Composable
 fun ProductListItem(
     product: ProductUi,
+    isFavorite: Boolean,
+    onFavoriteClick: () -> Unit,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -121,11 +128,20 @@ fun ProductListItem(
         ),
         elevation = CardDefaults.cardElevation(
             defaultElevation = 3.dp
-        )
+        ),
     ) {
         Column(
             modifier = Modifier.padding(16.dp)
         ) {
+            Button(onClick = onFavoriteClick) {
+                Text(
+                    text = if (isFavorite) {
+                        "Retirer des favoris"
+                    } else {
+                        "Ajouter aux favoris"
+                    }
+                )
+            }
             Text(
                 text = product.title,
                 style = MaterialTheme.typography.titleLarge,
@@ -156,6 +172,33 @@ fun ProductCatalogScreen(
     onProductClick: (ProductUi) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var searchQuery by rememberSaveable {
+        mutableStateOf("")
+    }
+    var showOnlyInStock by rememberSaveable {
+        mutableStateOf(false)
+    }
+    val filteredProducts = remember(products, searchQuery, showOnlyInStock) {
+        products.filter { product ->
+            val matchesSearch =
+                product.title.contains(searchQuery, ignoreCase = true) ||
+                        product.brand.contains(searchQuery, ignoreCase = true) ||
+                        product.category.contains(searchQuery, ignoreCase = true)
+            val matchesStock =
+                !showOnlyInStock || product.stock > 0
+            matchesSearch && matchesStock
+        }
+    }
+    var favoriteProductIds by rememberSaveable {
+        mutableStateOf(listOf<Int>())
+    }
+    fun toggleFavorite(productId: Int) {
+        favoriteProductIds = if (favoriteProductIds.contains(productId)) {
+            favoriteProductIds - productId
+        } else {
+            favoriteProductIds + productId
+        }
+    }
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -171,6 +214,39 @@ fun ProductCatalogScreen(
             )
         }
         item {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { newValue ->
+                    searchQuery = newValue
+                },
+                label = {
+                    Text(text = "Rechercher un produit")
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        item {
+            Text(
+                text = "${filteredProducts.size} produit(s) affiché(s)",
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+        item {
+            Button(
+                onClick = {
+                    showOnlyInStock = !showOnlyInStock
+                }
+            ) {
+                Text(
+                    text = if (showOnlyInStock) {
+                        "Afficher tous les produits"
+                    } else {
+                        "Afficher uniquement les produits en stock"
+                    }
+                )
+            }
+        }
+        item {
             Text(
                 text = "Explorez une séléction de produits disponibles localement.",
                 style = MaterialTheme.typography.bodyMedium
@@ -180,11 +256,15 @@ fun ProductCatalogScreen(
             CategoryRow(categories = sampleCategories())
         }
         items(
-            items = products,
+            items = filteredProducts,
             key = { product -> product.id }
         ) { product ->
             ProductListItem(
                 product = product,
+                isFavorite = favoriteProductIds.contains(product.id),
+                onFavoriteClick = {
+                    toggleFavorite(product.id)
+                },
                 onClick = {
                     onProductClick(product)
                 }
